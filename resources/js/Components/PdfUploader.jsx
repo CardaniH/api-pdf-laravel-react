@@ -1,13 +1,23 @@
 // resources/js/Components/PdfUploader.jsx
 
 import React, { useState, useCallback, useEffect } from 'react';
-// ... (los imports no cambian)
 import { Upload, FileText, ArrowUpDown, Download, Trash2, AlertTriangle, Edit3 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import axios from 'axios';
 
-// ... (los estilos no cambian)
-const dropzoneStyles = `...`;
+const dropzoneStyles = `
+.file-drop-zone {
+  border: 2px dashed #d1d5db;
+  border-radius: 1rem;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.2s ease-in-out;
+}
+.file-drop-zone:hover {
+  border-color: #3b82f6;
+  background-color: #f9fafb;
+}
+`;
 
 function PdfUploader() {
   const [files, setFiles] = useState([]);
@@ -15,10 +25,8 @@ function PdfUploader() {
   const [uploadStatus, setUploadStatus] = useState('');
   const [customOrder, setCustomOrder] = useState('');
   const [validationError, setValidationError] = useState('');
-  // NUEVO: Estado para el nombre del archivo de salida
   const [outputFilename, setOutputFilename] = useState('');
 
-  // ... (el resto de los hooks y funciones hasta handleMergeAndDownload no cambian)
   useEffect(() => {
     if (validationError) {
       const timer = setTimeout(() => setValidationError(''), 5000);
@@ -67,45 +75,66 @@ function PdfUploader() {
     setFiles(prev => [...prev, ...newFiles]);
   }, [files]);
   
-  const handleFileInput = (e) => { /* ... no cambia ... */ 
+  const handleFileInput = (e) => { 
     const selectedFiles = Array.from(e.target.files);
     handleDrop(selectedFiles);
     e.target.value = '';
   };
-  const handleOnDragEnd = (result) => { /* ... no cambia ... */ 
+
+  const handleOnDragEnd = (result) => {
     if (!result.destination) return;
     const items = Array.from(files);
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
     setFiles(items);
   };
-  const applyCustomOrder = () => { /* ... no cambia ... */ 
+  
+  // ==================================================================
+  // =========== FUNCIÓN DE ORDENAMIENTO INTELIGENTE (CORREGIDA) ======
+  // ==================================================================
+  const applyCustomOrder = () => {
     setValidationError('');
     if (!customOrder.trim()) return;
-    const orderArray = customOrder.split('\n').map(line => line.trim()).filter(Boolean);
-    
-    const uploadedFileNames = new Set(files.map(f => f.name));
-    const nonExistentNames = orderArray.filter(name => !uploadedFileNames.has(name));
 
+    const orderArray = customOrder.split('\n').map(line => line.trim()).filter(Boolean);
+    const fileMap = new Map(files.map(f => [f.name, f]));
+    
+    const nonExistentNames = orderArray.filter(name => !fileMap.has(name));
     if (nonExistentNames.length > 0) {
       setValidationError(`Los siguientes nombres no existen: ${nonExistentNames.join(', ')}`);
       return;
     }
-    
-    const fileMap = new Map(files.map(f => [f.name, f]));
+
     const reorderedFiles = [];
+    const processedFiles = new Set();
+
     orderArray.forEach(name => {
-      if (fileMap.has(name)) {
+      if (fileMap.has(name) && !processedFiles.has(name)) {
         reorderedFiles.push(fileMap.get(name));
-        fileMap.delete(name);
+        processedFiles.add(name);
+
+        const children = files
+          .filter(f => f.name.startsWith(`${name}-`) && !processedFiles.has(f.name))
+          .sort((a, b) => {
+              const numA = parseInt(a.name.split('-').pop(), 10);
+              const numB = parseInt(b.name.split('-').pop(), 10);
+              return numA - numB;
+          });
+
+        children.forEach(child => {
+          reorderedFiles.push(child);
+          processedFiles.add(child.name);
+        });
       }
     });
-    setFiles([...reorderedFiles, ...Array.from(fileMap.values())]);
-  };
-  const removeFile = (id) => { /* ... no cambia ... */ 
-    setFiles(files.filter(file => file.id !== id));
+
+    const remainingFiles = files.filter(f => !processedFiles.has(f.name));
+    setFiles([...reorderedFiles, ...remainingFiles]);
   };
 
+  const removeFile = (id) => {
+    setFiles(files.filter(file => file.id !== id));
+  };
 
   const handleMergeAndDownload = async () => {
     if (files.length === 0) {
@@ -119,7 +148,6 @@ function PdfUploader() {
     const orderArray = files.map(fileItem => fileItem.name);
 
     files.forEach(fileItem => {
-        // CORRECCIÓN: Enviamos el archivo con su nombre lógico (ej: '10-1.pdf')
         formData.append('pdfs[]', fileItem.file, `${fileItem.name}.pdf`);
     });
 
@@ -127,11 +155,8 @@ function PdfUploader() {
         formData.append('order[]', name);
     });
 
-    // NUEVO: Enviamos el nombre del archivo de salida
-    // Si está vacío, enviamos un nombre por defecto.
     const finalOutputName = outputFilename.trim() || `documento_ordenado`;
     formData.append('output_name', finalOutputName);
-
 
     try {
       const response = await axios.post('/api/merge-pdfs', formData, {
@@ -142,7 +167,6 @@ function PdfUploader() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      // Usamos el nombre que definimos, con un timestamp para evitar caché
       a.download = `${finalOutputName}_${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
@@ -154,7 +178,7 @@ function PdfUploader() {
         setFiles([]);
         setUploadStatus('');
         setCustomOrder('');
-        setOutputFilename(''); // Limpiamos el campo del nombre de salida
+        setOutputFilename('');
       }, 3000);
 
     } catch (error) {
@@ -165,11 +189,11 @@ function PdfUploader() {
     }
   };
 
+  // El JSX no tiene cambios
   return (
     <>
       <StyleInjector css={dropzoneStyles} />
-      {/* ... (Header no cambia) ... */}
-      <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-purple-50">
+      <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-red-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center space-x-3">
@@ -177,7 +201,7 @@ function PdfUploader() {
               <FileText className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">PDF TAMARA</h1>
+              <h1 className="text-3xl font-bold text-gray-900">PDF Merger Pro</h1>
               <p className="text-gray-600">Ordena y combina tus PDFs fácilmente</p>
             </div>
           </div>
@@ -187,14 +211,13 @@ function PdfUploader() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="grid lg:grid-cols-2 gap-8">
           
-          {/* ... (Panel de subida y lista de archivos no cambian) ... */}
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-lg p-8">
               <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
                 <Upload className="w-6 h-6 mr-3 text-red-600" />
                 Subir Archivos PDF
               </h2>
-              <div className="file-drop-zone mb-6"> {/* Resto del Dropzone JSX */}
+              <div className="file-drop-zone mb-6">
               <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-lg font-medium text-gray-700 mb-2">
                   Arrastra y suelta tus PDFs aquí
@@ -216,7 +239,7 @@ function PdfUploader() {
                 </label>
               </div>
               {files.length > 0 && (
-                <div className="border-t pt-6"> {/* Resto de la lista de archivos JSX */}
+                <div className="border-t pt-6">
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center">
                     <FileText className="w-5 h-5 mr-2" />
                     Archivos seleccionados ({files.length})
@@ -253,9 +276,7 @@ function PdfUploader() {
           </div>
 
 
-          {/* Panel de ordenamiento y descarga */}
           <div className="space-y-6">
-            {/* ... (Panel de ordenamiento no cambia) ... */}
             <div className="bg-white rounded-2xl shadow-lg p-8">
               <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
                 <ArrowUpDown className="w-6 h-6 mr-3 text-red-600" />
@@ -271,7 +292,7 @@ function PdfUploader() {
                   value={customOrder}
                   onChange={(e) => setCustomOrder(e.target.value)}
                   placeholder="Ejemplo:&#10;5&#10;10&#10;20&#10;5120&#10;11"
-                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none font-mono text-sm"
+                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none font-mono text-sm"
                 />
 
                 {validationError && (
@@ -284,7 +305,7 @@ function PdfUploader() {
                 <button
                   onClick={applyCustomOrder}
                   disabled={!customOrder.trim() || files.length === 0}
-                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white py-3 px-6 rounded-lg transition-colors duration-200 font-medium"
+                  className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white py-3 px-6 rounded-lg transition-colors duration-200 font-medium"
                 >
                   Aplicar Orden Personalizado
                 </button>
@@ -310,11 +331,11 @@ function PdfUploader() {
                                   ref={provided.innerRef}
                                   {...provided.draggableProps}
                                   {...provided.dragHandleProps}
-                                  className={`p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border transition-all duration-200 flex items-center space-x-3 ${
+                                  className={`p-3 bg-gradient-to-r from-red-50 to-pink-50 rounded-lg border transition-all duration-200 flex items-center space-x-3 ${
                                     snapshot.isDragging ? 'shadow-lg scale-105' : 'shadow-sm'
                                   }`}
                                 >
-                                  <span className="bg-purple-100 text-purple-800 text-sm font-bold px-3 py-1 rounded-full">
+                                  <span className="bg-red-100 text-red-800 text-sm font-bold px-3 py-1 rounded-full">
                                     {index + 1}
                                   </span>
                                   <span className="font-medium text-gray-800">
@@ -334,7 +355,6 @@ function PdfUploader() {
             </div>
 
             <div className="bg-white rounded-2xl shadow-lg p-8">
-              {/* NUEVO: Input para el nombre del archivo de salida */}
               <div className="space-y-4 mb-6">
                  <h2 className="text-2xl font-semibold text-gray-800 flex items-center">
                     <Edit3 className="w-6 h-6 mr-3 text-red-600" />
@@ -345,16 +365,15 @@ function PdfUploader() {
                     value={outputFilename}
                     onChange={(e) => setOutputFilename(e.target.value)}
                     placeholder="Ej: reporte_mensual"
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
               </div>
 
               <button
                 onClick={handleMergeAndDownload}
                 disabled={files.length === 0 || isUploading}
-                className="w-full bg-gradient-to-r from-gray-500 to-red-600 hover:from-green-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-4 px-8 rounded-xl transition-all duration-300 font-bold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:transform-none"
+                className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 text-white py-4 px-8 rounded-xl transition-all duration-300 font-bold text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:transform-none"
               >
-                {/* ... (Contenido del botón no cambia) ... */}
                 {isUploading ? (
                   <div className="flex items-center justify-center space-x-2">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
@@ -370,9 +389,8 @@ function PdfUploader() {
 
               {uploadStatus && (
                 <div className={`mt-4 p-4 rounded-lg font-medium text-center ${
-                  // ... (lógica de clases no cambia)
                   uploadStatus.includes('✅') 
-                    ? 'bg-green-100 text-green-800 border border-green-200' 
+                    ? 'bg-red-100 text-red-800 border border-red-200' 
                     : uploadStatus.includes('❌')
                     ? 'bg-red-100 text-red-800 border border-red-200'
                     : 'bg-red-100 text-red-800 border border-red-200'
