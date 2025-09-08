@@ -1,10 +1,11 @@
-// resources/js/Components/PdfUploader.jsx
-
 import React, { useState, useCallback, useEffect } from 'react';
+// CORRECCIÓN: Asegurarse de que todos los iconos estén importados
 import { Upload, FileText, ArrowUpDown, Download, Trash2, AlertTriangle, Edit3 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import axios from 'axios';
+import { useDropzone } from 'react-dropzone';
 
+// ... (const dropzoneStyles no cambia) ...
 const dropzoneStyles = `
 .file-drop-zone {
   border: 2px dashed #d1d5db;
@@ -13,30 +14,25 @@ const dropzoneStyles = `
   text-align: center;
   transition: all 0.2s ease-in-out;
 }
-.file-drop-zone:hover {
-  border-color: #3b82f6;
-  background-color: #f9fafb;
+.file-drop-zone-active {
+  border-color: #2563eb;
+  background-color: #eff6ff;
 }
 `;
 
 function PdfUploader() {
   const [files, setFiles] = useState([]);
+  // ... (otros estados no cambian) ...
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
   const [customOrder, setCustomOrder] = useState('');
   const [validationError, setValidationError] = useState('');
   const [outputFilename, setOutputFilename] = useState('');
 
-  useEffect(() => {
-    if (validationError) {
-      const timer = setTimeout(() => setValidationError(''), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [validationError]);
 
-  const StyleInjector = ({ css }) => <style>{css}</style>;
-
+  // La función handleDrop se mantiene, la usaremos con el hook
   const handleDrop = useCallback((acceptedFiles) => {
+    // ... (la lógica interna de handleDrop no cambia) ...
     setValidationError('');
     const pdfFiles = acceptedFiles.filter(file => file.type === 'application/pdf');
     
@@ -75,12 +71,29 @@ function PdfUploader() {
     setFiles(prev => [...prev, ...newFiles]);
   }, [files]);
   
+  // NUEVO: Configuración del hook useDropzone
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: handleDrop,
+    accept: { 'application/pdf': ['.pdf'] },
+    noClick: true, // Desactivamos el clic para usar nuestro propio botón/label
+    noKeyboard: true,
+  });
+
+  // ... (el resto de las funciones no cambian) ...
+    useEffect(() => {
+    if (validationError) {
+      const timer = setTimeout(() => setValidationError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [validationError]);
+
+  const StyleInjector = ({ css }) => <style>{css}</style>;
+  
   const handleFileInput = (e) => { 
     const selectedFiles = Array.from(e.target.files);
     handleDrop(selectedFiles);
     e.target.value = '';
   };
-
   const handleOnDragEnd = (result) => {
     if (!result.destination) return;
     const items = Array.from(files);
@@ -88,16 +101,12 @@ function PdfUploader() {
     items.splice(result.destination.index, 0, reorderedItem);
     setFiles(items);
   };
-  
-  // ==================================================================
-  // =========== FUNCIÓN DE ORDENAMIENTO INTELIGENTE (CORREGIDA) ======
-  // ==================================================================
   const applyCustomOrder = () => {
     setValidationError('');
     if (!customOrder.trim()) return;
 
-    const orderArray = customOrder.split('\n').map(line => line.trim()).filter(Boolean);
-    const fileMap = new Map(files.map(f => [f.name, f]));
+    const orderArray = customOrder.split('\n').map(line => line.replace(/\s/g, '')).filter(Boolean);
+    const fileMap = new Map(files.map(f => [f.name.replace(/\s/g, ''), f]));
     
     const nonExistentNames = orderArray.filter(name => !fileMap.has(name));
     if (nonExistentNames.length > 0) {
@@ -114,28 +123,29 @@ function PdfUploader() {
         processedFiles.add(name);
 
         const children = files
-          .filter(f => f.name.startsWith(`${name}-`) && !processedFiles.has(f.name))
+          .filter(f => {
+            const cleanChildName = f.name.replace(/\s/g, '');
+            return cleanChildName.startsWith(`${name}-`) && !processedFiles.has(cleanChildName);
+          })
           .sort((a, b) => {
-              const numA = parseInt(a.name.split('-').pop(), 10);
-              const numB = parseInt(b.name.split('-').pop(), 10);
+              const numA = parseInt(a.name.replace(/\s/g, '').split('-').pop(), 10);
+              const numB = parseInt(b.name.replace(/\s/g, '').split('-').pop(), 10);
               return numA - numB;
           });
 
         children.forEach(child => {
           reorderedFiles.push(child);
-          processedFiles.add(child.name);
+          processedFiles.add(child.name.replace(/\s/g, ''));
         });
       }
     });
 
-    const remainingFiles = files.filter(f => !processedFiles.has(f.name));
+    const remainingFiles = files.filter(f => !processedFiles.has(f.name.replace(/\s/g, '')));
     setFiles([...reorderedFiles, ...remainingFiles]);
   };
-
   const removeFile = (id) => {
     setFiles(files.filter(file => file.id !== id));
   };
-
   const handleMergeAndDownload = async () => {
     if (files.length === 0) {
       setUploadStatus('❌ No hay archivos para procesar');
@@ -157,6 +167,7 @@ function PdfUploader() {
 
     const finalOutputName = outputFilename.trim() || `documento_ordenado`;
     formData.append('output_name', finalOutputName);
+
 
     try {
       const response = await axios.post('/api/merge-pdfs', formData, {
@@ -189,10 +200,11 @@ function PdfUploader() {
     }
   };
 
-  // El JSX no tiene cambios
+
   return (
     <>
       <StyleInjector css={dropzoneStyles} />
+      {/* ... (Header no cambia) ... */}
       <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-red-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-6">
@@ -217,20 +229,27 @@ function PdfUploader() {
                 <Upload className="w-6 h-6 mr-3 text-red-600" />
                 Subir Archivos PDF
               </h2>
-              <div className="file-drop-zone mb-6">
-              <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-lg font-medium text-gray-700 mb-2">
-                  Arrastra y suelta tus PDFs aquí
-                </p>
-                <p className="text-gray-500 mb-4">o haz clic para seleccionar archivos</p>
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf"
-                  onChange={handleFileInput}
-                  className="hidden"
-                  id="file-input"
-                />
+              
+              {/* NUEVO: Aplicamos los props de dropzone al div principal */}
+              <div {...getRootProps()} className={`file-drop-zone mb-6 ${isDragActive ? 'file-drop-zone-active' : ''}`}>
+                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                {/* NUEVO: El texto cambia dinámicamente */}
+                {isDragActive ? (
+                  <p className="text-lg font-medium text-red-600 mb-2">
+                    ¡Suelta los archivos aquí!
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-lg font-medium text-gray-700 mb-2">
+                      Arrastra y suelta tus PDFs aquí
+                    </p>
+                    <p className="text-gray-500 mb-4">o haz clic para seleccionar archivos</p>
+                  </>
+                )}
+                
+                {/* NUEVO: Aplicamos los props de input al input original */}
+                <input {...getInputProps()} id="file-input" className="hidden" />
+                
                 <label
                   htmlFor="file-input"
                   className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg cursor-pointer transition-colors duration-200 font-medium"
@@ -238,6 +257,8 @@ function PdfUploader() {
                   Seleccionar Archivos
                 </label>
               </div>
+
+              {/* ... (el resto del JSX no cambia) ... */}
               {files.length > 0 && (
                 <div className="border-t pt-6">
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center">
@@ -274,8 +295,6 @@ function PdfUploader() {
               )}
             </div>
           </div>
-
-
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-lg p-8">
               <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
@@ -353,7 +372,6 @@ function PdfUploader() {
                 </div>
               )}
             </div>
-
             <div className="bg-white rounded-2xl shadow-lg p-8">
               <div className="space-y-4 mb-6">
                  <h2 className="text-2xl font-semibold text-gray-800 flex items-center">
