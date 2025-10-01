@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
-// CORRECCIÓN: Asegurarse de que todos los iconos estén importados
 import { Upload, FileText, ArrowUpDown, Download, Trash2, AlertTriangle, Edit3, FileArchive } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import axios from 'axios';
 import { useDropzone } from 'react-dropzone';
+
 
 const dropzoneStyles = `
 .file-drop-zone {
@@ -19,6 +19,7 @@ const dropzoneStyles = `
 }
 `;
 
+
 function PdfUploader() {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
@@ -27,6 +28,19 @@ function PdfUploader() {
     const [validationError, setValidationError] = useState('');
     const [outputFilename, setOutputFilename] = useState('');
 
+
+    // Función para simular extractNumericPrefix del PHP
+    const extractNumericPrefixJS = (filename) => {
+        const nameWithoutExt = filename.replace(/\.pdf$/i, '');
+        const cleaned = nameWithoutExt.replace(/[\(\) \-_]/g, ' ');
+        const match = cleaned.match(/^(\d+)/);
+        if (match) return match[1];
+        const wordMatch = cleaned.match(/^([a-zA-Z0-9]+)/);
+        if (wordMatch) return wordMatch[1];
+        return nameWithoutExt.replace(/[^a-zA-Z0-9]/g, '');
+    };
+
+
     const handleDrop = useCallback((acceptedFiles) => {
         setValidationError('');
         const pdfFiles = acceptedFiles.filter(file => file.type === 'application/pdf');
@@ -34,9 +48,11 @@ function PdfUploader() {
         const allNames = new Set(files.map(f => f.name));
         const renamedFilesInfo = [];
 
+
         const newFiles = pdfFiles.map(file => {
             const nameWithoutExt = file.name.replace(/\.pdf$/i, '');
             let finalName = nameWithoutExt;
+
 
             if (allNames.has(finalName)) {
                 let counter = 1;
@@ -51,6 +67,7 @@ function PdfUploader() {
             
             allNames.add(finalName);
 
+
             return {
                 id: Math.random().toString(36).substr(2, 9),
                 file,
@@ -59,9 +76,11 @@ function PdfUploader() {
             };
         });
 
+
         if (renamedFilesInfo.length > 0) {
             setValidationError(`Se renombraron duplicados: ${renamedFilesInfo.join('; ')}.`);
         }
+
 
         setFiles(prev => [...prev, ...newFiles]);
     }, [files]);
@@ -73,12 +92,14 @@ function PdfUploader() {
         noKeyboard: true,
     });
 
+
     useEffect(() => {
         if (validationError) {
             const timer = setTimeout(() => setValidationError(''), 5000);
             return () => clearTimeout(timer);
         }
     }, [validationError]);
+
 
     const StyleInjector = ({ css }) => <style>{css}</style>;
     
@@ -88,6 +109,7 @@ function PdfUploader() {
         e.target.value = '';
     };
 
+
     const handleOnDragEnd = (result) => {
         if (!result.destination) return;
         const items = Array.from(files);
@@ -96,9 +118,11 @@ function PdfUploader() {
         setFiles(items);
     };
 
+
     const applyCustomOrder = () => {
         setValidationError('');
         if (!customOrder.trim()) return;
+
 
         const orderArray = customOrder.split('\n').map(line => line.replace(/\s/g, '')).filter(Boolean);
         const fileMap = new Map(files.map(f => [f.name.replace(/\s/g, ''), f]));
@@ -109,13 +133,16 @@ function PdfUploader() {
             return;
         }
 
+
         const reorderedFiles = [];
         const processedFiles = new Set();
+
 
         orderArray.forEach(name => {
             if (fileMap.has(name) && !processedFiles.has(name)) {
                 reorderedFiles.push(fileMap.get(name));
                 processedFiles.add(name);
+
 
                 const children = files
                     .filter(f => {
@@ -128,6 +155,7 @@ function PdfUploader() {
                         return numA - numB;
                     });
 
+
                 children.forEach(child => {
                     reorderedFiles.push(child);
                     processedFiles.add(child.name.replace(/\s/g, ''));
@@ -135,13 +163,16 @@ function PdfUploader() {
             }
         });
 
+
         const remainingFiles = files.filter(f => !processedFiles.has(f.name.replace(/\s/g, '')));
         setFiles([...reorderedFiles, ...remainingFiles]);
     };
 
+
     const removeFile = (id) => {
         setFiles(files.filter(file => file.id !== id));
     };
+
 
     const clearState = () => {
         setFiles([]);
@@ -150,45 +181,63 @@ function PdfUploader() {
         setOutputFilename('');
     };
 
-    // CORREGIDO: Añadido manejo de eventos y debugging
+
+    // ✅ FUNCIÓN CORREGIDA - handleMergeAndDownload
     const handleMergeAndDownload = async (e) => {
-        e.preventDefault(); // Prevenir envío de formulario
-        e.stopPropagation(); // Detener propagación del evento
+        e.preventDefault();
+        e.stopPropagation();
         
         if (files.length === 0) {
             setUploadStatus('❌ No hay archivos para procesar');
             return;
         }
         
-        if (isUploading) return; // Prevenir ejecución doble
+        if (isUploading) return;
         
-        console.log('🔵 EJECUTANDO: handleMergeAndDownload'); // Log de debug
+        console.log('🔵 EJECUTANDO: handleMergeAndDownload');
         
         setIsUploading(true);
         setUploadStatus('🔄 Procesando PDFs...');
 
+
         const formData = new FormData();
         const orderArray = files.map(fileItem => fileItem.name);
 
-        files.forEach(fileItem => {
-            formData.append('pdfs[]', fileItem.file, `${fileItem.name}.pdf`);
+
+        // ✅ CORRECCIÓN: Crear archivos con nombres lógicos y agregar al FormData
+        files.forEach((fileItem) => {
+            const logicalName = `${fileItem.name}.pdf`;
+            const renamedFile = new File([fileItem.file], logicalName, { 
+                type: 'application/pdf' 
+            });
+            formData.append('pdfs[]', renamedFile);
         });
 
+
+        // ✅ CORRECCIÓN: Usar extractNumericPrefix para el order
         orderArray.forEach(name => {
-            formData.append('order[]', name);
+            const nameWithPdf = `${name}.pdf`;
+            const extractedName = extractNumericPrefixJS(nameWithPdf);
+            formData.append('order[]', extractedName);
         });
 
-        // DEBUG: Mostrar qué se está enviando
-        console.log('📤 Archivos siendo enviados:');
+
+        // DEBUG mejorado
+        console.log('📤 Merge - Archivos siendo enviados:');
         console.log('Files in state:', files.map(f => f.name));
-        console.log('Order array:', orderArray);
+        console.log('Order array (extracted):', orderArray.map(name => extractNumericPrefixJS(`${name}.pdf`)));
+
 
         const finalOutputName = outputFilename.trim() || `documento_ordenado`;
         formData.append('output_name', finalOutputName);
 
+
         try {
             const response = await axios.post('/api/pdfs/merge', formData, {
                 responseType: 'blob',
+                headers: {
+                    'Accept': 'application/json',
+                },
             });
             
             const blob = new Blob([response.data], { type: 'application/pdf' });
@@ -211,8 +260,10 @@ function PdfUploader() {
             window.URL.revokeObjectURL(url);
             a.remove();
 
+
             setUploadStatus('✅ ¡PDF combinado descargado exitosamente!');
             setTimeout(clearState, 3000);
+
 
         } catch (error) {
             console.error('❌ Error en handleMergeAndDownload:', error);
@@ -222,9 +273,9 @@ function PdfUploader() {
                 const errorText = await error.response.data.text();
                 try {
                     const errorJson = JSON.parse(errorText);
-                    errorMessage = errorJson.error || errorMessage;
+                    errorMessage = errorJson.error || JSON.stringify(errorJson);
                 } catch {
-                    errorMessage = "Error inesperado del servidor.";
+                    errorMessage = errorText || "Error inesperado del servidor.";
                 }
             } else if (error.response?.data?.error) {
                 errorMessage = error.response.data.error;
@@ -236,84 +287,98 @@ function PdfUploader() {
         }
     };
     
+    // ✅ FUNCIÓN CORREGIDA - handleGroupAndZip
     const handleGroupAndZip = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (files.length === 0) {
-        setUploadStatus('❌ No hay archivos para agrupar.');
-        return;
-    }
-    
-    if (isUploading) return;
-    
-    console.log('🟢 EJECUTANDO: handleGroupAndZip');
-    
-    setIsUploading(true);
-    setUploadStatus('🔄 Agrupando y comprimiendo...');
-
-    const formData = new FormData();
-    files.forEach(fileItem => {
-        // ✅ SOLUCIÓN: Crear nuevo File con nombre lógico
-        const renamedFile = new File([fileItem.file], `${fileItem.name}.pdf`, { 
-            type: fileItem.file.type 
-        });
-        formData.append('pdfs[]', renamedFile);
-    });
-
-    // DEBUG mejorado
-    console.log('📦 Archivos para agrupar:');
-    files.forEach((f, i) => {
-        console.log(`${i}: Logical name: "${f.name}.pdf" | Original name: "${f.file.name}"`);
-    });
-
-    try {
-        const response = await axios.post('/api/pdfs/merge-by-group', formData, {
-            responseType: 'blob',
-        });
-
-        const blob = new Blob([response.data], { type: 'application/zip' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        e.preventDefault();
+        e.stopPropagation();
         
-        let filename = 'documentos-agrupados.zip';
-        const contentDisposition = response.headers['content-disposition'];
-        if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-            if (filenameMatch && filenameMatch.length > 1) {
-                filename = filenameMatch[1];
-            }
+        if (files.length === 0) {
+            setUploadStatus('❌ No hay archivos para agrupar.');
+            return;
         }
+        
+        if (isUploading) return;
+        
+        console.log('🟢 EJECUTANDO: handleGroupAndZip');
+        
+        setIsUploading(true);
+        setUploadStatus('🔄 Agrupando y comprimiendo...');
 
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        a.remove();
 
-        setUploadStatus('✅ ¡Archivo ZIP descargado exitosamente!');
-        setTimeout(clearState, 3000);
+        const formData = new FormData();
+        
+        // ✅ CORRECCIÓN CRÍTICA: Crear archivos File con nombres lógicos
+        files.forEach((fileItem) => {
+            const logicalName = `${fileItem.name}.pdf`;
+            const renamedFile = new File([fileItem.file], logicalName, { 
+                type: 'application/pdf' 
+            });
+            formData.append('pdfs[]', renamedFile);
+        });
 
-    } catch (error) {
-        console.error('❌ Error en handleGroupAndZip:', error);
-        let errorMessage = "Error de conexión o del servidor.";
-        if (error.response && error.response.data instanceof Blob) {
-            const errorText = await error.response.data.text();
-            try {
-                const errorJson = JSON.parse(errorText);
-                errorMessage = errorJson.error || errorMessage;
-            } catch {
-                 errorMessage = "Error inesperado del servidor.";
+
+        // DEBUG mejorado
+        console.log('📦 Group - Archivos para agrupar:');
+        files.forEach((f, i) => {
+            console.log(`${i}: Logical name: "${f.name}.pdf" | Original: "${f.file.name}"`);
+        });
+
+
+        try {
+            const response = await axios.post('/api/pdfs/merge-by-group', formData, {
+                responseType: 'blob',
+                headers: {
+                    'Accept': 'application/json',
+                },
+            });
+
+
+            const blob = new Blob([response.data], { type: 'application/zip' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            
+            let filename = 'documentos-agrupados.zip';
+            const contentDisposition = response.headers['content-disposition'];
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch && filenameMatch.length > 1) {
+                    filename = filenameMatch[1];
+                }
             }
-        } else if (error.response?.data?.error) {
-            errorMessage = error.response.data.error;
+
+
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+
+
+            setUploadStatus('✅ ¡Archivo ZIP descargado exitosamente!');
+            setTimeout(clearState, 3000);
+
+
+        } catch (error) {
+            console.error('❌ Error en handleGroupAndZip:', error);
+            let errorMessage = "Error de conexión o del servidor.";
+            if (error.response && error.response.data instanceof Blob) {
+                const errorText = await error.response.data.text();
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorMessage = errorJson.error || JSON.stringify(errorJson);
+                } catch {
+                     errorMessage = errorText || "Error inesperado del servidor.";
+                }
+            } else if (error.response?.data?.error) {
+                errorMessage = error.response.data.error;
+            }
+            setUploadStatus(`❌ Error: ${errorMessage}`);
+        } finally {
+            setIsUploading(false);
         }
-        setUploadStatus(`❌ Error: ${errorMessage}`);
-    } finally {
-        setIsUploading(false);
-    }
-};
+    };
+
 
     return (
         <>
@@ -332,6 +397,7 @@ function PdfUploader() {
                         </div>
                     </div>
                 </header>
+
 
                 <div className="max-w-7xl mx-auto px-4 py-8">
                     <div className="grid lg:grid-cols-2 gap-8">
@@ -361,6 +427,7 @@ function PdfUploader() {
                                         Seleccionar Archivos
                                     </label>
                                 </div>
+
 
                                 {files.length > 0 && (
                                     <div className="border-t pt-6">
@@ -401,12 +468,14 @@ function PdfUploader() {
                             </div>
                         </div>
 
+
                         <div className="space-y-6">
                             <div className="bg-white rounded-2xl shadow-lg p-8">
                                 <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
                                     <ArrowUpDown className="w-6 h-6 mr-3 text-red-600" />
                                     Definir Orden
                                 </h2>
+
 
                                 <div className="space-y-4">
                                     <p className="text-gray-600">
@@ -433,6 +502,7 @@ function PdfUploader() {
                                         Aplicar Orden Personalizado
                                     </button>
                                 </div>
+
 
                                 {files.length > 0 && (
                                     <div className="mt-8 border-t pt-6">
@@ -482,7 +552,7 @@ function PdfUploader() {
                                      <p className="text-sm text-gray-500">Este nombre solo se usa para la opción "Combinar PDF".</p>
                                 </div>
 
-                                {/* --- BOTONES DE ACCIÓN CORREGIDOS --- */}
+
                                 <div className="space-y-4">
                                     <button 
                                         type="button"
@@ -502,6 +572,7 @@ function PdfUploader() {
                                             </>
                                         )}
                                     </button>
+
 
                                     <button 
                                         type="button"
@@ -523,6 +594,7 @@ function PdfUploader() {
                                     </button>
                                 </div>
 
+
                                 {uploadStatus && (
                                     <div className={`mt-4 p-4 rounded-lg font-medium text-center ${
                                         uploadStatus.includes('✅') ? 'bg-green-100 text-green-800 border border-green-200' :
@@ -540,5 +612,6 @@ function PdfUploader() {
         </>
     );
 }
+
 
 export default PdfUploader;

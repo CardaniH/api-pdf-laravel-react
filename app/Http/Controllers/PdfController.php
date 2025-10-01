@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str; // Importamos el helper de String de Laravel
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use ZipArchive;
@@ -18,10 +19,10 @@ class PdfController extends Controller
             'pdfs.*' => 'required|file|mimes:pdf|max:10240',
             'order'   => 'required|array',
             'order.*' => 'required|string',
-            'output_name' => 'nullable|string|max:100',
+            'output_name' => 'nullable|string|max:100', // NUEVO: Validación para el nombre de salida
         ]);
 
-        if ($validator->fails()) {
+         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
@@ -32,6 +33,7 @@ class PdfController extends Controller
             $order = $request->input('order');
             $tempPaths = [];
             
+            // Gracias a la corrección del frontend, getClientOriginalName() ahora nos dará el nombre lógico (ej: '10-1.pdf')
             foreach ($request->file('pdfs') as $file) {
                 $originalName = $file->getClientOriginalName();
                 $nameWithoutExtension = pathinfo($originalName, PATHINFO_FILENAME);
@@ -73,15 +75,17 @@ class PdfController extends Controller
             }
 
             $outputContent = File::get($outputPath);
+
+            // NUEVO: Usar el nombre de archivo proporcionado por el usuario
             $outputName = $request->input('output_name', 'documento-unido');
-            
-            // ✅ CORREGIDO: Usar funciones PHP nativas en lugar de Str::slug()
-            $sanitizedName = str_replace(' ', '-', strtolower($outputName));
-            $sanitizedName = preg_replace('/[^A-Za-z0-9\-]/', '', $sanitizedName);
+            // Limpiamos el nombre para que sea un nombre de archivo seguro
+            $sanitizedName = Str::slug($outputName, '-');
             $finalFilename = $sanitizedName . '.pdf';
+
 
             return response($outputContent, 200, [
                 'Content-Type' => 'application/pdf',
+                // Usamos el nombre de archivo final sanitizado
                 'Content-Disposition' => 'attachment; filename="' . $finalFilename . '"',
             ]);
 
@@ -95,6 +99,7 @@ class PdfController extends Controller
             File::deleteDirectory($tempDir);
         }
     }
+
 
     public function mergeAndZipByGroup(Request $request)
     {
@@ -153,8 +158,7 @@ class PdfController extends Controller
                     $file->move($uploadsDir, $originalName);
                 }
                 
-                $nameWithoutExtension = pathinfo($originalName, PATHINFO_FILENAME);
-                $baseName = explode('-', $nameWithoutExtension)[0];
+                $baseName = $this->extractNumericPrefix($originalName);
                 
                 if (!isset($groupedFiles[$baseName])) {
                     $groupedFiles[$baseName] = [];
@@ -228,5 +232,26 @@ class PdfController extends Controller
             
             return response()->json(['error' => 'Error en el servidor: ' . $e->getMessage()], 500);
         }
+    }
+    
+    private function extractNumericPrefix($filename) {
+        // Remover extensión si existe
+        $nameWithoutExt = pathinfo($filename, PATHINFO_FILENAME);
+        
+        // Limpiar caracteres especiales comunes
+        $cleaned = str_replace(['(', ')', ' - ', '_'], ' ', $nameWithoutExt);
+        
+        // Patrón regex para capturar los primeros números consecutivos
+        if (preg_match('/^(\d+)/', $cleaned, $matches)) {
+            return $matches[1];
+        }
+        
+        // Si no encuentra números al inicio, usar la primera palabra alfanumérica
+        if (preg_match('/^([a-zA-Z0-9]+)/', $cleaned, $matches)) {
+            return $matches[1];
+        }
+        
+        // Fallback: devolver nombre limpio sin caracteres especiales
+        return preg_replace('/[^a-zA-Z0-9]/', '', $nameWithoutExt);
     }
 }
